@@ -5,10 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/stretchr/testify/mock"
 	"math/big"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/mock"
 
 	"github.com/ethereum/go-ethereum/common"
 	gqlerrors "github.com/graph-gophers/graphql-go/errors"
@@ -96,7 +97,8 @@ func TestResolver_Chains(t *testing.T) {
 						},
 					},
 				}, 1, nil)
-				f.Mocks.evmORM.On("GetNodesByChainIDs", []utils.Big{chainID}).
+				f.App.On("GetChains").Return(chainlink.Chains{EVM: f.Mocks.chainSet})
+				f.Mocks.chainSet.On("GetNodesByChainIDs", mock.Anything, []utils.Big{chainID}).
 					Return([]types.Node{
 						{
 							ID:         nodeID,
@@ -194,6 +196,7 @@ func TestResolver_Chain(t *testing.T) {
 				require.NoError(t, err)
 
 				f.App.On("EVMORM").Return(f.Mocks.evmORM)
+				f.App.On("GetChains").Return(chainlink.Chains{EVM: f.Mocks.chainSet})
 				f.Mocks.evmORM.On("Chain", chainID).Return(types.Chain{
 					ID:        chainID,
 					Enabled:   true,
@@ -214,7 +217,7 @@ func TestResolver_Chain(t *testing.T) {
 						},
 					},
 				}, nil)
-				f.Mocks.evmORM.On("GetNodesByChainIDs", []utils.Big{chainID}).
+				f.Mocks.chainSet.On("GetNodesByChainIDs", mock.Anything, []utils.Big{chainID}).
 					Return([]types.Node{
 						{
 							ID:         nodeID,

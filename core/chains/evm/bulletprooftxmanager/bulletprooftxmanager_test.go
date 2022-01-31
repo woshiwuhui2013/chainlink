@@ -422,6 +422,8 @@ func newMockConfig(t *testing.T) *bptxmmocks.Config {
 	cfg.On("EvmMaxGasPriceWei").Return(big.NewInt(42)).Maybe().Once()
 	cfg.On("EvmMinGasPriceWei").Return(big.NewInt(42)).Maybe().Once()
 
+	cfg.On("LogSQL").Maybe().Return(false)
+
 	return cfg
 }
 
@@ -535,7 +537,6 @@ func TestBulletproofTxManager_Lifecycle(t *testing.T) {
 	config.On("EvmMaxInFlightTransactions").Return(uint32(42))
 	config.On("EvmFinalityDepth").Maybe().Return(uint32(42))
 	config.On("GasEstimatorMode").Return("FixedPrice")
-	config.On("LogSQL").Return(false)
 	kst.On("GetStatesForChain", &cltest.FixtureChainID).Return([]ethkey.State{}, nil).Once()
 
 	keyChangeCh := make(chan struct{})
