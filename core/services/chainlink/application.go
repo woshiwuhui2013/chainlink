@@ -23,7 +23,6 @@ import (
 	"github.com/smartcontractkit/chainlink/core/chains/evm/bulletprooftxmanager"
 	evmtypes "github.com/smartcontractkit/chainlink/core/chains/evm/types"
 	"github.com/smartcontractkit/chainlink/core/chains/terra"
-	terratypes "github.com/smartcontractkit/chainlink/core/chains/terra/types"
 	"github.com/smartcontractkit/chainlink/core/config"
 	"github.com/smartcontractkit/chainlink/core/logger"
 	"github.com/smartcontractkit/chainlink/core/services"
@@ -77,7 +76,6 @@ type Application interface {
 	JobSpawner() job.Spawner
 	JobORM() job.ORM
 	EVMORM() evmtypes.ORM
-	TerraORM() terratypes.ORM
 	PipelineORM() pipeline.ORM
 	BridgeORM() bridges.ORM
 	SessionORM() sessions.ORM
@@ -147,7 +145,17 @@ type ApplicationOpts struct {
 // Chains holds a ChainSet for each type of chain.
 type Chains struct {
 	EVM   evm.ChainSet
-	Terra terra.ChainSet
+	Terra terra.ChainSet // nil if disabled
+}
+
+func (c *Chains) services() (s []interface{}) {
+	if c.EVM != nil {
+		s = append(s, c.EVM)
+	}
+	if c.Terra != nil {
+		s = append(s, c.Terra)
+	}
+	return
 }
 
 // NewApplication initializes a new store if one is not already
@@ -220,7 +228,8 @@ func NewApplication(opts ApplicationOpts) (Application, error) {
 		globalLogger.Info("DatabaseBackup: periodic database backups are disabled. To enable automatic backups, set DATABASE_BACKUP_MODE=lite or DATABASE_BACKUP_MODE=full")
 	}
 
-	subservices = append(subservices, eventBroadcaster, chains.EVM)
+	subservices = append(subservices, eventBroadcaster)
+	subservices = append(subservices, chains.services()...)
 	promReporter := promreporter.NewPromReporter(db.DB, globalLogger)
 	subservices = append(subservices, promReporter)
 
@@ -589,11 +598,6 @@ func (app *ChainlinkApplication) SessionORM() sessions.ORM {
 
 func (app *ChainlinkApplication) EVMORM() evmtypes.ORM {
 	return app.Chains.EVM.ORM()
-}
-
-// TerraORM returns the Terra ORM.
-func (app *ChainlinkApplication) TerraORM() terratypes.ORM {
-	return app.Chains.Terra.ORM()
 }
 
 func (app *ChainlinkApplication) PipelineORM() pipeline.ORM {

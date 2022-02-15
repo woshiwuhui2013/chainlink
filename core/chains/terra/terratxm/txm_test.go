@@ -85,9 +85,7 @@ func TestTxm_Integration(t *testing.T) {
 
 	// Change the contract state
 	setMsg := wasmtypes.NewMsgExecuteContract(transmitterID, contractID, []byte(`{"reset":{"count":5}}`), sdk.Coins{})
-	validBytes, err := setMsg.Marshal()
-	require.NoError(t, err)
-	_, err = txm.Enqueue(contractID.String(), validBytes)
+	_, err = txm.Enqueue(contractID.String(), setMsg)
 	require.NoError(t, err)
 
 	// Observe the counter gets set eventually
@@ -99,25 +97,25 @@ func TestTxm_Integration(t *testing.T) {
 	}, 10*time.Second, time.Second).Should(gomega.BeTrue())
 	// Ensure messages are completed
 	gomega.NewWithT(t).Eventually(func() bool {
-		msgs, err := orm.SelectMsgsWithState(Confirmed, 5)
+		msgs, err := orm.GetMsgsState(Confirmed, 5)
 		require.NoError(t, err)
 		return 1 == len(msgs)
 	}, 5*time.Second, time.Second).Should(gomega.BeTrue())
 
 	// Ensure invalid msgs are marked as errored
 	invalidMsg := wasmtypes.NewMsgExecuteContract(transmitterID, contractID, []byte(`{"blah":{"blah":5}}`), sdk.Coins{})
-	invalidBytes, err := invalidMsg.Marshal()
+	_, err = txm.Enqueue(contractID.String(), invalidMsg)
 	require.NoError(t, err)
-	_, err = txm.Enqueue(contractID.String(), invalidBytes)
-	_, err = txm.Enqueue(contractID.String(), invalidBytes)
-	_, err = txm.Enqueue(contractID.String(), validBytes)
+	_, err = txm.Enqueue(contractID.String(), invalidMsg)
+	require.NoError(t, err)
+	_, err = txm.Enqueue(contractID.String(), setMsg)
 	require.NoError(t, err)
 
 	// Ensure messages are completed
 	gomega.NewWithT(t).Eventually(func() bool {
-		succeeded, err := orm.SelectMsgsWithState(Confirmed, 5)
+		succeeded, err := orm.GetMsgsState(Confirmed, 5)
 		require.NoError(t, err)
-		errored, err := orm.SelectMsgsWithState(Errored, 5)
+		errored, err := orm.GetMsgsState(Errored, 5)
 		require.NoError(t, err)
 		t.Log("errored", len(errored), "succeeded", len(succeeded))
 		return 2 == len(succeeded) && 2 == len(errored)
