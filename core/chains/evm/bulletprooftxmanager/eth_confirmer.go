@@ -275,8 +275,8 @@ WHERE evm_chain_id = $1
 ORDER BY eth_tx_attempts.eth_tx_id ASC, eth_txes.nonce ASC, eth_tx_attempts.gas_price DESC, eth_tx_attempts.gas_tip_cap DESC
 `, ec.chainID.String())
 
-	// MARK MARK MARK
-	// TODO
+	// See:
+	// TODO: implement the rest
 	// batch send them all
 	// check results
 	// for each result that isn't "nonce too low" put that tx into the "to unconfirm" array
@@ -475,9 +475,9 @@ func (ec *EthConfirmer) batchFetchReceipts(ctx context.Context, attempts []EthTx
 		}
 
 		if receipt == nil {
-			// NOTE: This should never likely happen, but it seems safer to
-			// check regardless to avoid a potential panic
-			l.Error("Invariant violation, got nil receipt")
+			// NOTE: This should never happen, but it seems safer to check
+			// regardless to avoid a potential panic
+			l.Error("AssumptionViolation: got nil receipt")
 			continue
 		}
 

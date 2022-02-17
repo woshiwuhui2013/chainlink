@@ -2552,3 +2552,7 @@ func TestEthConfirmer_ResumePendingRuns(t *testing.T) {
 	})
 
 }
+
+func TestUnit_EthConfirmer_CheckConfirmedMissingReceipt(t *testing.T) {
+	t.Fatal("TODO")
+}

@@ -36,10 +36,15 @@ type Client interface {
 	Call(result interface{}, method string, args ...interface{}) error
 	CallContext(ctx context.Context, result interface{}, method string, args ...interface{}) error
 	BatchCallContext(ctx context.Context, b []rpc.BatchElem) error
+	// BatchCallContextAll calls BatchCallContext for every single node including
+	// sendonlys.
+	// CAUTION: This should only be used for mass re-transmitting transactions, it
+	// might have unexpected effects to use it for anything else.
+	BatchCallContextAll(ctx context.Context, b []rpc.BatchElem) error
 
 	// HeadByNumber is a reimplemented version of HeaderByNumber due to a
 	// difference in how block header hashes are calculated by Parity nodes
-	// running on Kovan.  We have to return our own wrapper type to capture the
+	// running on Kovan. We have to return our own wrapper type to capture the
 	// correct hash from the RPC response.
 	HeadByNumber(ctx context.Context, n *big.Int) (*evmtypes.Head, error)
 	SubscribeNewHead(ctx context.Context, ch chan<- *evmtypes.Head) (ethereum.Subscription, error)

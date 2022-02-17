@@ -73,6 +73,7 @@ func Test_EthResender_FindEthTxAttemptsRequiringResend(t *testing.T) {
 	})
 
 	t.Run("returns the highest price attempt for EIP-1559 transactions", func(t *testing.T) {
+		t.Fatal("TODO")
 	})
 
 	t.Run("applies limit", func(t *testing.T) {

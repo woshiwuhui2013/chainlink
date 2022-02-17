@@ -143,7 +143,7 @@ func (er *EthResender) resendUnconfirmed() error {
 
 		er.logger.Debugw(fmt.Sprintf("Batch resending transactions %v thru %v", i, j))
 
-		if err := er.ethClient.BatchCallContext(er.ctx, reqs[i:j]); err != nil {
+		if err := er.ethClient.BatchCallContextAll(er.ctx, reqs[i:j]); err != nil {
 			return errors.Wrap(err, "failed to re-send transactions")
 		}
 
