@@ -199,6 +199,12 @@ func (client *client) EstimateGas(ctx context.Context, call ethereum.CallMsg) (g
 	return client.pool.EstimateGas(ctx, call)
 }
 
+// SuggestGasPrice calls the RPC node to get a suggested gas price.
+// WARNING: It is not recommended to ever use this result for anything
+// important. There are a number of issues with asking the RPC node to provide a
+// gas estimate; it is not reliable. Unless you really have a good reason to
+// use this, you should probably use core node's internal gas estimator
+// instead.
 func (client *client) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
 	return client.pool.SuggestGasPrice(ctx)
 }
@@ -278,6 +284,12 @@ func (client *client) BatchCallContext(ctx context.Context, b []rpc.BatchElem) e
 	return client.pool.BatchCallContext(ctx, b)
 }
 
+// SuggestGasTipCap calls the RPC node to get a suggested gas tip cap.
+// WARNING: It is not recommended to ever use this result for anything
+// important. There are a number of issues with asking the RPC node to provide a
+// gas estimate; it is not reliable. Unless you really have a good reason to
+// use this, you should probably use core node's internal gas estimator
+// instead.
 func (client *client) SuggestGasTipCap(ctx context.Context) (tipCap *big.Int, err error) {
 	return client.pool.SuggestGasTipCap(ctx)
 }

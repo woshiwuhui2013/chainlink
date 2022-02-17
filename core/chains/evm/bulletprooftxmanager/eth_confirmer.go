@@ -200,6 +200,10 @@ func (ec *EthConfirmer) processHead(ctx context.Context, head *evmtypes.Head) er
 
 	ec.lggr.Debugw("processHead", "headNum", head.Number, "id", "eth_confirmer")
 
+	if err := ec.CheckConfirmedMissingReceipt(); err != nil {
+		return errors.Wrap(err, "CheckConfirmedMissingReceipt failed")
+	}
+
 	if err := ec.SetBroadcastBeforeBlockNum(head.Number); err != nil {
 		return errors.Wrap(err, "SetBroadcastBeforeBlockNum failed")
 	}
@@ -236,9 +240,49 @@ func (ec *EthConfirmer) processHead(ctx context.Context, head *evmtypes.Head) er
 	return nil
 }
 
+// CheckConfirmedMissingReceipt will attempt to re-send any transaction in the
+// state of "confirmed_missing_receipt". If we get back any type of senderror
+// other than "nonce too low" it means that this transaction isn't actually
+// confirmed and needs to be put back into "unconfirmed" state so it can enter
+// the gas bumping cycle. This is necessary in rare cases (e.g. Polygon) where
+// network conditions are extremely hostile.
+//
+// For example, assume the following scenario:
+//
+// 0. We are connected to multiple primary nodes via load balancer
+// 1. We send a transaction, it is confirmed and we get a receipt
+// 2. A new head comes in from RPC node 1 indicating that this transaction was re-org'd, so we put it back into unconfirmed state
+// 3. We re-send that transaction to a RPC node 2 **which hasn't caught up to this re-org yet**
+// 4. RPC node 2 still has an old view of the chain, so it returns us "nonce too low" indicating "no problem this transaction is already mined"
+// 5. Now the transaction is marked "confirmed_missing_receipt" but the latest chain does not actually include it
+// 6. Now we are reliant on the EthResender to propagate it, and this transaction will not be gas bumped, so in the event of gas spikes it could languish or even be evicted from the mempool and hold up the queue
+// 7. Even if/when RPC node 2 catches up, the transaction is still stuck in state "confirmed_missing_receipt"
+//
+// This scenario might sound unlikely but has been observed to happen multiple times in the wild on Polygon.
+
+// CheckForReceipts finds attempts that are still pending and checks to see if a receipt is present for the given block number
+
 // SetBroadcastBeforeBlockNum updates already broadcast attempts with the
 // current block number. This is safe no matter how old the head is because if
 // the attempt is already broadcast it _must_ have been before this head.
+func (ec *EthConfirmer) CheckConfirmedMissingReceipt(ctx context.Context) (err error) {
+	var attempts []EthTxAttempt
+	err = ec.q.Select(&attempts, `
+SELECT DISTINCT ON (eth_tx_id) eth_tx_attempts.*
+FROM eth_tx_attempts
+JOIN eth_txes ON eth_txes.id = eth_tx_attempts.eth_tx_id AND eth_txes.state = 'confirmed_missing_receipt'
+WHERE evm_chain_id = $1
+ORDER BY eth_tx_attempts.eth_tx_id ASC, eth_txes.nonce ASC, eth_tx_attempts.gas_price DESC, eth_tx_attempts.gas_tip_cap DESC
+`, ec.chainID.String())
+
+	// MARK MARK MARK
+	// TODO
+	// batch send them all
+	// check results
+	// for each result that isn't "nonce too low" put that tx into the "to unconfirm" array
+	// unconfirm all those txes
+}
+
 func (ec *EthConfirmer) SetBroadcastBeforeBlockNum(blockNum int64) error {
 	_, err := ec.q.Exec(
 		`UPDATE eth_tx_attempts
@@ -269,12 +313,15 @@ func (ec *EthConfirmer) CheckForReceipts(ctx context.Context, blockNum int64) er
 	}
 
 	for from, attempts := range attemptsByAddress {
-		latestBlockNonce, err := ec.getNonceForLatestBlock(ctx, from)
+		minedTransactionCount, err := ec.getMinedTransactionCount(ctx, from)
 		if err != nil {
 			return errors.Wrapf(err, "unable to fetch pending nonce for address: %v", from)
 		}
 
-		likelyConfirmed := ec.separateLikelyConfirmedAttempts(from, attempts, latestBlockNonce)
+		// separateLikelyConfirmedAttempts is used as an optimisation: there is
+		// no point trying to fetch receipts for attempts with a nonce higher
+		// than the highest nonce the RPC node thinks it has seen
+		likelyConfirmed := ec.separateLikelyConfirmedAttempts(from, attempts, minedTransactionCount)
 		likelyConfirmedCount := len(likelyConfirmed)
 		if likelyConfirmedCount > 0 {
 			likelyUnconfirmedCount := len(attempts) - likelyConfirmedCount
@@ -302,19 +349,29 @@ func (ec *EthConfirmer) CheckForReceipts(ctx context.Context, blockNum int64) er
 	return nil
 }
 
-func (ec *EthConfirmer) separateLikelyConfirmedAttempts(from gethCommon.Address, attempts []EthTxAttempt, latestBlockNonce uint64) []EthTxAttempt {
+func (ec *EthConfirmer) separateLikelyConfirmedAttempts(from gethCommon.Address, attempts []EthTxAttempt, minedTransactionCount uint64) []EthTxAttempt {
 	if len(attempts) == 0 {
 		return attempts
 	}
 
 	firstAttemptNonce := *attempts[len(attempts)-1].EthTx.Nonce
 	lastAttemptNonce := *attempts[0].EthTx.Nonce
-	ec.lggr.Debugw(fmt.Sprintf("There are %d attempts from address %s, latest nonce for it is %d and for the attempts' nonces: first = %d, last = %d",
-		len(attempts), from.Hex(), latestBlockNonce, firstAttemptNonce, lastAttemptNonce), "nAttempts", len(attempts), "fromAddress", from, "latestBlockNonce", latestBlockNonce, "firstAttemptNonce", firstAttemptNonce, "lastAttemptNonce", lastAttemptNonce)
+	var latestMinedNonce int64 = int64(minedTransactionCount) - 1 // this can be -1 if a transaction has never been mined on this account
+	ec.lggr.Debugw(fmt.Sprintf("There are %d attempts from address %s, mined transaction count is %d (latest mined nonce is %d) and for the attempts' nonces: first = %d, last = %d",
+		len(attempts), from.Hex(), minedTransactionCount, latestMinedNonce, firstAttemptNonce, lastAttemptNonce), "nAttempts", len(attempts), "fromAddress", from, "minedTransactionCount", minedTransactionCount, "latestMinedNonce", latestMinedNonce, "firstAttemptNonce", firstAttemptNonce, "lastAttemptNonce", lastAttemptNonce)
 
 	likelyConfirmed := attempts
+	// attempts are ordered by nonce ASC
 	for i := 0; i < len(attempts); i++ {
-		if attempts[i].EthTx.Nonce != nil && *attempts[i].EthTx.Nonce > int64(latestBlockNonce) {
+		// If the attempt nonce is lower or equal to the latestBlockNonce
+		// it must have been confirmed, we just didn't get a receipt yet
+		//
+		// Examples:
+		// 3 transactions confirmed, highest has nonce 2
+		// 5 total attempts, highest has nonce 4
+		// minedTransactionCount=3
+		// likelyConfirmed will be attempts[0:3] which gives the first 3 transactions, as expected
+		if *attempts[i].EthTx.Nonce > int64(minedTransactionCount) {
 			ec.lggr.Debugf("Marking attempts as likely confirmed just before index %v, at nonce: %v", i, *attempts[i].EthTx.Nonce)
 			likelyConfirmed = attempts[0:i]
 			break
@@ -374,7 +431,7 @@ ORDER BY eth_txes.nonce ASC, eth_tx_attempts.gas_price DESC, eth_tx_attempts.gas
 	return
 }
 
-func (ec *EthConfirmer) getNonceForLatestBlock(ctx context.Context, from gethCommon.Address) (nonce uint64, err error) {
+func (ec *EthConfirmer) getMinedTransactionCount(ctx context.Context, from gethCommon.Address) (nonce uint64, err error) {
 	return ec.ethClient.NonceAt(ctx, from, nil)
 }
 
@@ -418,7 +475,7 @@ func (ec *EthConfirmer) batchFetchReceipts(ctx context.Context, attempts []EthTx
 		}
 
 		if receipt == nil {
-			// NOTE: This should never possibly happen, but it seems safer to
+			// NOTE: This should never likely happen, but it seems safer to
 			// check regardless to avoid a potential panic
 			l.Error("Invariant violation, got nil receipt")
 			continue
@@ -483,7 +540,7 @@ func (ec *EthConfirmer) saveFetchedReceipts(receipts []Receipt) (err error) {
 	//
 	// # EthTxAttempts update
 	// It should always be safe to mark the attempt as broadcast here because
-	// if it were not successfully broadcast how could it possibly have a
+	// if it were not successfully broadcast how could it likely have a
 	// receipt?
 	//
 	// This state is reachable for example if the eth node errors so the
