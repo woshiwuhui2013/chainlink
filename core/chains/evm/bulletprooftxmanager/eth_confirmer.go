@@ -275,7 +275,7 @@ WHERE evm_chain_id = $1
 ORDER BY eth_tx_attempts.eth_tx_id ASC, eth_txes.nonce ASC, eth_tx_attempts.gas_price DESC, eth_tx_attempts.gas_tip_cap DESC
 `, ec.chainID.String())
 
-	// See:
+	// See: https://app.shortcut.com/chainlinklabs/story/30321/fix-handling-of-confirmed-missing-receipts-transactions-in-ethconfirmer
 	// TODO: implement the rest
 	// batch send them all
 	// check results
@@ -540,7 +540,7 @@ func (ec *EthConfirmer) saveFetchedReceipts(receipts []Receipt) (err error) {
 	//
 	// # EthTxAttempts update
 	// It should always be safe to mark the attempt as broadcast here because
-	// if it were not successfully broadcast how could it likely have a
+	// if it were not successfully broadcast how could it possibly have a
 	// receipt?
 	//
 	// This state is reachable for example if the eth node errors so the
